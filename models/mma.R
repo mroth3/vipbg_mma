@@ -16,11 +16,33 @@ allVars <- c('zyg','zyg2','sex1','sex2','p1_t1','p1_t2','p2_t1','p2_t2')
 
 # Check if running in parallel mode (variables set by wrapper)
 if (exists("current_file_path")) {
-  # Running in parallel - use assigned file
-  dataTwo <- read.csv(current_file_path, header=T, na.strings=".", col.names=allVars)
+  # Running in parallel - use assigned file with retry logic
+  max_retries <- 5
+  retry_count <- 0
+  dataTwo <- NULL
+
+  while (retry_count < max_retries && is.null(dataTwo)) {
+    tryCatch({
+      dataTwo <- read.csv(current_file_path, header=T, na.strings=".", col.names=allVars)
+    }, error = function(e) {
+      if (grepl("cannot open the connection", e$message)) {
+        retry_count <<- retry_count + 1
+        if (retry_count < max_retries) {
+          Sys.sleep(runif(1, 0.1, 1.0))  # Random delay before retry
+        }
+      } else {
+        stop(e)  # Different error, don't retry
+      }
+    })
+  }
+
+  if (is.null(dataTwo)) {
+    stop("Failed to read file after ", max_retries, " attempts: ", current_file_path)
+  }
+
 } else {
-  # Running standalone - use default file
-  dataTwo <- read.csv("simulator/binned_results/results_a11_lg/simulated_data_1.csv", header=T, na.strings=".", col.names=allVars)
+  # Running standalone - use default file (UPDATED PATH)
+  dataTwo <- read.csv("datasets/data_a11_lg/simulated_data_1.csv", header=T, na.strings=".", col.names=allVars)
 }
 
 dataMZm <- subset(dataTwo,zyg==3,)
