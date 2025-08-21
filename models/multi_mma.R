@@ -6,18 +6,72 @@
 require(OpenMx)
 require(psych)
 require(parallel)
-require(foreach)
-require(doParallel)
-require(flock)  # For file locking mechanism
-source("models/miFunctions.R")
 options(width=245)
 
 # ==============================================================================
 # UTILITY FUNCTIONS
 # ==============================================================================
 
-#' Create a thread-safe queue management system
-create_queue_system <- function(base_dir = "datasets") {
+#' Quiet run function from original mma.R script
+quiet_run <- function(file_path, log_file = "error_log.txt") {
+  lines <- readLines(file_path, warn = FALSE)
+  total_lines <- length(lines)
+  con <- textConnection(lines)
+
+  # Open log connection
+  log_con <- file(log_file, open = "wt")
+
+  on.exit({
+    close(con)
+    close(log_con)
+  })
+
+  current_line <- 0
+
+  repeat {
+    expr <- tryCatch(parse(con, n = 1), error = function(e) NULL)
+
+    # Stop if there's nothing left to run
+    if (is.null(expr) || length(expr) == 0) {
+      break
+    }
+
+    # Track percent complete
+    attr_lines <- attr(expr, "srcref")
+    if (!is.null(attr_lines)) {
+      last_line <- max(sapply(attr_lines, function(x) as.integer(x[3])))
+      current_line <- last_line
+    } else {
+      current_line <- min(total_lines, current_line + 1)
+    }
+
+    # Execute expression
+    withCallingHandlers(
+      tryCatch(
+        eval(expr, envir = .GlobalEnv),
+        error = function(e) {
+          writeLines(sprintf("[%s] ERROR at lines up to %d: %s",
+                             format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+                             current_line,
+                             e$message), log_con)
+        }
+      ),
+      warning = function(w) {
+        writeLines(sprintf("[%s] WARNING at lines up to %d: %s",
+                           format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+                           current_line,
+                           w$message), log_con)
+        invokeRestart("muffleWarning")
+      }
+    )
+
+    # Break if we've reached the last line
+    if (current_line >= total_lines) break
+  }
+}
+
+#' Create list of all files to process
+create_file_list <- function(base_dir = "datasets") {
 
   # Find all data folders (those starting with "data")
   data_folders <- list.dirs(base_dir, recursive = FALSE, full.names = TRUE)
@@ -30,107 +84,19 @@ create_queue_system <- function(base_dir = "datasets") {
     all_files <- c(all_files, csv_files)
   }
 
-  # Create queue file
-  queue_file <- "processing_queue.txt"
-  writeLines(all_files, queue_file)
-
-  # Create processed files log
-  processed_file <- "processed_files.txt"
-  if (!file.exists(processed_file)) {
-    writeLines("", processed_file)
-  }
-
   cat(sprintf("Found %d data folders with simulated datasets:\n", length(data_folders)))
   for (folder in data_folders) {
     folder_files <- list.files(folder, pattern = "^simulated_data_.*\\.csv$")
     cat(sprintf("  %s: %d files\n", basename(folder), length(folder_files)))
   }
 
-  return(list(
-    queue_file = queue_file,
-    processed_file = processed_file,
-    total_files = length(all_files)
-  ))
-}
-
-#' Thread-safe function to get next file from queue
-get_next_file <- function(queue_file, processed_file) {
-
-  # Use file locking to ensure thread safety
-  lock_file <- paste0(queue_file, ".lock")
-
-  # Try to acquire lock with timeout
-  max_attempts <- 50
-  attempt <- 1
-
-  while (attempt <= max_attempts) {
-    if (!file.exists(lock_file)) {
-      # Create lock file
-      writeLines(paste("Locked by process", Sys.getpid(), "at", Sys.time()), lock_file)
-
-      # Double check we got the lock
-      Sys.sleep(0.01)  # Small delay
-      lock_content <- readLines(lock_file, warn = FALSE)
-      if (length(lock_content) > 0 && grepl(Sys.getpid(), lock_content[1])) {
-        break
-      }
-    }
-
-    # Wait and retry
-    Sys.sleep(runif(1, 0.01, 0.1))  # Random wait to reduce collision
-    attempt <- attempt + 1
-  }
-
-  if (attempt > max_attempts) {
-    return(NULL)  # Could not acquire lock
-  }
-
-  # Now we have the lock, process the queue
-  tryCatch({
-    # Read current queue and processed files
-    if (!file.exists(queue_file)) {
-      return(NULL)
-    }
-
-    queue_lines <- readLines(queue_file, warn = FALSE)
-    processed_lines <- readLines(processed_file, warn = FALSE)
-
-    # Remove empty lines
-    queue_lines <- queue_lines[queue_lines != ""]
-    processed_lines <- processed_lines[processed_lines != ""]
-
-    # Find unprocessed files
-    remaining_files <- setdiff(queue_lines, processed_lines)
-
-    if (length(remaining_files) == 0) {
-      return(NULL)  # No more files to process
-    }
-
-    # Get the next file
-    next_file <- remaining_files[1]
-
-    # Add to processed list
-    writeLines(c(processed_lines, next_file), processed_file)
-
-    return(next_file)
-
-  }, error = function(e) {
-    cat("Error in get_next_file:", e$message, "\n")
-    return(NULL)
-  }, finally = {
-    # Always remove lock
-    if (file.exists(lock_file)) {
-      file.remove(lock_file)
-    }
-  })
+  return(all_files)
 }
 
 #' Process a single dataset file
-process_single_dataset <- function(file_path, worker_id = NULL) {
+process_single_dataset <- function(file_path) {
 
-  cat(sprintf("[Worker %s] Processing: %s\n",
-              ifelse(is.null(worker_id), "?", worker_id),
-              basename(file_path)))
+  cat(sprintf("Processing: %s\n", basename(file_path)))
 
   tryCatch({
     # Load and prepare data (adapted from your original code)
@@ -151,8 +117,20 @@ process_single_dataset <- function(file_path, worker_id = NULL) {
     dataDZf <- dataDZf[, c("p1_t1", "p2_t1", "p1_t2", "p2_t2")]
     dataDZo <- dataDZo[, c("p1_t1", "p2_t1", "p1_t2", "p2_t2")]
 
-    # Run the multimodel fitting (assuming this is defined in multimodel_fitFn.R)
-    source('models/multimodel_fitFn.R')
+    # Set up the data environment for multimodel_fitFn.R
+    assign("dataMZm", dataMZm, envir = .GlobalEnv)
+    assign("dataMZf", dataMZf, envir = .GlobalEnv)
+    assign("dataDZm", dataDZm, envir = .GlobalEnv)
+    assign("dataDZf", dataDZf, envir = .GlobalEnv)
+    assign("dataDZo", dataDZo, envir = .GlobalEnv)
+
+    # Use the quiet_run function like in your original script
+    quiet_run('models/multimodel_fitFn.R')
+
+    # Check if the required objects exist after running multimodel_fitFn.R
+    if (!exists("fitACE5") || !exists("colPra")) {
+      stop("Required objects (fitACE5, colPra) not created by multimodel_fitFn.R")
+    }
 
     # Perform model averaging
     mma <- mxModelAverage(reference=c(colPra,"Prop"),
@@ -167,13 +145,12 @@ process_single_dataset <- function(file_path, worker_id = NULL) {
     rel_path <- gsub("\\.csv$", "", rel_path)
 
     # Create directories for each component
-    components <- c("Model-Average Estimates",
-                   "Model-wise Estimates",
-                   "Model-wise Sampling Variances",
-                   "Akaike-Weights Table")
+    components <- names(mma)  # Use actual component names from mma object
 
     for (component in components) {
-      output_dir <- file.path(component, dirname(rel_path))
+      # Clean component name for directory creation
+      clean_component <- gsub("[^A-Za-z0-9_-]", "_", component)
+      output_dir <- file.path(clean_component, dirname(rel_path))
       if (!dir.exists(output_dir)) {
         dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
       }
@@ -183,47 +160,20 @@ process_single_dataset <- function(file_path, worker_id = NULL) {
       saveRDS(mma[[component]], output_file)
     }
 
-    cat(sprintf("[Worker %s] ✅ Completed: %s\n",
-                ifelse(is.null(worker_id), "?", worker_id),
-                basename(file_path)))
+    cat(sprintf("✅ Completed: %s\n", basename(file_path)))
 
-    return(TRUE)
+    return(list(success = TRUE, file = file_path))
 
   }, error = function(e) {
-    cat(sprintf("[Worker %s] ❌ Error processing %s: %s\n",
-                ifelse(is.null(worker_id), "?", worker_id),
-                basename(file_path),
-                e$message))
-    return(FALSE)
+    cat(sprintf("❌ Error processing %s: %s\n", basename(file_path), e$message))
+
+    # Write detailed error to log file
+    error_log <- "parallel_processing_errors.txt"
+    write(paste(Sys.time(), "- Error in", basename(file_path), ":", e$message),
+          file = error_log, append = TRUE)
+
+    return(list(success = FALSE, file = file_path, error = e$message))
   })
-}
-
-#' Worker function for parallel processing
-worker_function <- function(worker_id, queue_info) {
-
-  processed_count <- 0
-
-  while (TRUE) {
-    # Get next file from queue
-    next_file <- get_next_file(queue_info$queue_file, queue_info$processed_file)
-
-    if (is.null(next_file)) {
-      cat(sprintf("[Worker %d] No more files to process. Processed %d files.\n",
-                  worker_id, processed_count))
-      break
-    }
-
-    # Process the file
-    success <- process_single_dataset(next_file, worker_id)
-    if (success) {
-      processed_count <- processed_count + 1
-    }
-
-    # Brief pause to prevent overwhelming the system
-    Sys.sleep(0.01)
-  }
-
-  return(processed_count)
 }
 
 # ==============================================================================
@@ -240,11 +190,16 @@ run_parallel_mma <- function(n_cores = NULL, base_dir = "datasets") {
 
   cat(sprintf("🚀 Starting parallel MMA analysis with %d cores\n", n_cores))
 
-  # Create queue system
-  cat("📋 Creating processing queue...\n")
-  queue_info <- create_queue_system(base_dir)
+  # Get list of all files to process
+  cat("📋 Creating file list...\n")
+  all_files <- create_file_list(base_dir)
 
-  cat(sprintf("📊 Found %d total files to process\n", queue_info$total_files))
+  cat(sprintf("📊 Found %d total files to process\n", length(all_files)))
+
+  if (length(all_files) == 0) {
+    cat("❌ No files found to process!\n")
+    return(NULL)
+  }
 
   # Start timing
   start_time <- Sys.time()
@@ -252,7 +207,7 @@ run_parallel_mma <- function(n_cores = NULL, base_dir = "datasets") {
   # Set up parallel cluster
   cl <- makeCluster(n_cores)
 
-  # Export necessary objects and functions to workers
+  # Load required packages and functions on each worker
   clusterEvalQ(cl, {
     require(OpenMx)
     require(psych)
@@ -260,12 +215,12 @@ run_parallel_mma <- function(n_cores = NULL, base_dir = "datasets") {
     options(width=245)
   })
 
-  clusterExport(cl, c("get_next_file", "process_single_dataset", "worker_function"))
+  # Export functions to workers
+  clusterExport(cl, c("process_single_dataset", "quiet_run"))
 
-  # Run workers in parallel
-  results <- parLapply(cl, 1:n_cores, function(i) {
-    worker_function(i, queue_info)
-  })
+  # Process files in parallel
+  cat("🔄 Starting parallel processing...\n")
+  results <- parLapply(cl, all_files, process_single_dataset)
 
   # Stop cluster
   stopCluster(cl)
@@ -273,84 +228,61 @@ run_parallel_mma <- function(n_cores = NULL, base_dir = "datasets") {
   # Calculate summary statistics
   end_time <- Sys.time()
   total_time <- as.numeric(difftime(end_time, start_time, units = "mins"))
-  total_processed <- sum(unlist(results))
 
-  cat("\n" , rep("=", 50), "\n")
+  # Count successful and failed processing
+  successful <- sum(sapply(results, function(x) x$success))
+  failed <- length(results) - successful
+
+  cat("\n", rep("=", 50), "\n")
   cat("🎉 PARALLEL PROCESSING COMPLETE!\n")
   cat(sprintf("⏱️  Total time: %.2f minutes\n", total_time))
-  cat(sprintf("📁 Files processed: %d\n", total_processed))
-  cat(sprintf("⚡ Average rate: %.2f files/minute\n", total_processed / total_time))
+  cat(sprintf("📁 Total files: %d\n", length(all_files)))
+  cat(sprintf("✅ Successfully processed: %d\n", successful))
+  cat(sprintf("❌ Failed: %d\n", failed))
+  cat(sprintf("⚡ Average rate: %.2f files/minute\n", successful / total_time))
   cat(sprintf("🖥️  Used %d cores\n", n_cores))
   cat(rep("=", 50), "\n")
 
-  # Clean up temporary files
-  if (file.exists(queue_info$queue_file)) {
-    file.remove(queue_info$queue_file)
+  if (failed > 0) {
+    cat("📝 Check 'parallel_processing_errors.txt' for error details\n")
   }
 
   return(list(
-    total_files = queue_info$total_files,
-    processed_files = total_processed,
+    total_files = length(all_files),
+    successful = successful,
+    failed = failed,
     processing_time = total_time,
-    cores_used = n_cores
+    cores_used = n_cores,
+    results = results
   ))
+}
+
+# ==============================================================================
+# TEST FUNCTION FOR SINGLE FILE
+# ==============================================================================
+
+#' Test processing a single file (for debugging)
+test_single_file <- function(base_dir = "datasets") {
+  all_files <- create_file_list(base_dir)
+  if (length(all_files) > 0) {
+    cat("Testing with first file:", all_files[1], "\n")
+    result <- process_single_dataset(all_files[1])
+    return(result)
+  } else {
+    cat("No files found to test\n")
+    return(NULL)
+  }
 }
 
 # ==============================================================================
 # USAGE EXAMPLES
 # ==============================================================================
 
+# Test with a single file first:
+# test_result <- test_single_file()
+
 # Run with default settings (n-1 cores)
 # results <- run_parallel_mma()
 
 # Run with specific number of cores
 # results <- run_parallel_mma(n_cores = 95)
-
-# Run with custom dataset directory
-# results <- run_parallel_mma(n_cores = 50, base_dir = "my_datasets")
-
-# ==============================================================================
-# MONITORING FUNCTIONS
-# ==============================================================================
-
-#' Monitor progress during processing
-monitor_progress <- function(queue_file = "processing_queue.txt",
-                           processed_file = "processed_files.txt",
-                           refresh_interval = 10) {
-
-  if (!file.exists(queue_file) || !file.exists(processed_file)) {
-    cat("Queue files not found. Make sure processing has started.\n")
-    return()
-  }
-
-  total_files <- length(readLines(queue_file, warn = FALSE))
-
-  cat("📊 Monitoring progress (press Ctrl+C to stop monitoring)...\n\n")
-
-  repeat {
-    tryCatch({
-      processed_count <- length(readLines(processed_file, warn = FALSE)) - 1  # Subtract 1 for empty first line
-      processed_count <- max(0, processed_count)
-
-      progress <- (processed_count / total_files) * 100
-
-      cat(sprintf("\r🔄 Progress: %d/%d (%.1f%%) completed",
-                  processed_count, total_files, progress))
-      flush.console()
-
-      if (processed_count >= total_files) {
-        cat("\n✅ All files processed!\n")
-        break
-      }
-
-      Sys.sleep(refresh_interval)
-
-    }, error = function(e) {
-      cat("\nError monitoring progress:", e$message, "\n")
-      break
-    })
-  }
-}
-
-# To monitor in a separate R session while processing:
-# monitor_progress()
