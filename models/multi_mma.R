@@ -8,7 +8,8 @@
 library(parallel)
 
 # Calculate cores (n-1)
-n_cores <- parallel::detectCores() - 1
+n_cores <- 8
+#n_cores <- parallel::detectCores() - 1
 cat(sprintf("🚀 Using %d cores with file queue system\n", n_cores))
 
 # ==============================================================================
