@@ -61,7 +61,7 @@ quiet_run <- function(file_path, log_file = "error_log.txt") {
       current_line <- min(total_lines, current_line + 1)
     }
     pct <- round((current_line / total_lines) * 100, 1)
-    cat(sprintf("Running lines up to %d/%d (%.1f%%)\n", current_line, total_lines, pct))
+    #cat(sprintf("Running lines up to %d/%d (%.1f%%)\n", current_line, total_lines, pct))
 
     # Execute expression
     withCallingHandlers(
