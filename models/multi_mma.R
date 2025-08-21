@@ -19,9 +19,9 @@ cat(sprintf("🚀 Using %d cores with file queue system\n", n_cores))
 create_file_queue <- function() {
 
   # Find all datasets
-  base_dir <- "simulator/binned_results"
+  base_dir <- "datasets"
   condition_dirs <- list.dirs(base_dir, recursive = FALSE, full.names = FALSE)
-  condition_dirs <- condition_dirs[grepl("^results_", condition_dirs)]
+  condition_dirs <- condition_dirs[grepl("^data", condition_dirs)]
 
   file_list <- list()
 
