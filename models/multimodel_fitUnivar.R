@@ -18,12 +18,12 @@ includeOSDZ  <- TRUE     # Include opposite-sex DZ twins in DZ pool
 includeACEc  <- FALSE     # Include constrained ACE model (e fixed)
 zscore       <- FALSE     # Z-score data within groups before fitting
 smartStarts  <- FALSE     # Use observed correlations for starting values
-logResults   <- TRUE      # Log fit statistics to CSV file
+logResults   <- FALSE      # Log fit statistics to CSV file
 
 # Lower bound variant controls
-lb_threshold <- 0.05     # Only generate variants if component estimated below this
-lb_start     <- 0.01     # Always start lower bounds at this value
-lb_upper     <- 0.3      # Upper limit for lower bound variants
+lb_threshold <- 0     # Only generate variants if component estimated below this
+lb_start     <- 0     # Always start lower bounds at this value
+lb_upper     <- 0      # Upper limit for lower bound variants
 lb_step      <- 0.02      # Step size for lower bound variants
 
 # Set optimizer with fallback
