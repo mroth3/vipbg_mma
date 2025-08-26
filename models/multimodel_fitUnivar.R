@@ -15,7 +15,7 @@ useTryHard   <- TRUE      # Use mxTryHard instead of mxRun for robustness
 optimizer    <- "NPSOL"   # Optimizer: "NPSOL", "SLSQP", or "CSOLNP"
 startVals    <- c(A = 0.3, C = 0.3, E = 0.3)  # Starting values for variance components
 includeOSDZ  <- TRUE     # Include opposite-sex DZ twins in DZ pool
-includeACEc  <- TRUE     # Include constrained ACE model (e fixed)
+includeACEc  <- FALSE     # Include constrained ACE model (e fixed)
 zscore       <- FALSE     # Z-score data within groups before fitting
 smartStarts  <- FALSE     # Use observed correlations for starting values
 logResults   <- TRUE      # Log fit statistics to CSV file
