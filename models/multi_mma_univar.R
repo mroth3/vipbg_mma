@@ -1,6 +1,10 @@
 # Define the top-level datasets folder
 base_dir <- "datasets"
 out_dir  <- "estimates"
+# Ensure the output directory exists
+if (!dir.exists(out_dir)) {
+  dir.create(out_dir, recursive = TRUE)
+}
 
 # Get all subdirectories starting with "data"
 subdirs <- list.dirs(base_dir, recursive = FALSE, full.names = TRUE)
