@@ -21,7 +21,7 @@ smartStarts  <- FALSE     # Use observed correlations for starting values
 logResults   <- FALSE      # Log fit statistics to CSV file
 
 # Lower bound variant controls
-lb_threshold <- 0     # Only generate variants if component estimated below this
+lb_threshold <- -5     # Only generate variants if component estimated below this
 lb_start     <- 0     # Always start lower bounds at this value
 lb_upper     <- 0      # Upper limit for lower bound variants
 lb_step      <- 0.02      # Step size for lower bound variants
