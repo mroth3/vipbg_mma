@@ -1,128 +1,144 @@
+# batch_acdeSim.R
+# Generate 1,000 datasets for each of 7 ACDE targets and save to datasets/variation_k
 
-acdeSim <- function(A, C, D, E, Nmz, Ndz, mean=0) {
-  stopifnot(A >= 0, C >= 0, D >= 0, E >= 0)
-  tot <- A + C + D + E
-  if (tot <= 0) stop("All ACDE components are zero.")
+# ---- user knobs --------------------------------------------------------------
+Nmz      <- 500       # MZ pairs per dataset
+Ndz      <- 750       # DZ pairs per dataset
+n_per    <- 1000      # datasets per variation
+out_root <- "datasets"
+seed0    <- 20250902  # base seed; ensures reproducibility but uniqueness across runs
 
-  # Variance scale doesn't have to be 1, but this keeps things standard.
-  # If you give standardized inputs, tot==1.
-  mzMat <- matrix(c(tot, A + C + D, A + C + D, tot), 2, 2, byrow = TRUE)
-  dzMat <- matrix(c(tot, 0.5*A + C + 0.25*D, 0.5*A + C + 0.25*D, tot), 2, 2, byrow = TRUE)
+source('direct_acde/acde_direct.R')
 
-  mzData <- MASS::mvrnorm(n = Nmz, mu = c(mean, mean), Sigma = mzMat, empirical = FALSE)
-  dzData <- MASS::mvrnorm(n = Ndz, mu = c(mean, mean), Sigma = dzMat, empirical = FALSE)
 
-  colnames(mzData) <- colnames(dzData) <- c("t1","t2")
+# ---- targets (must sum to 1.00) ---------------------------------------------
+targets <- list(
+  # 1
+  c(A=.25, C=.25, D=.25, E=.25),
+  # 2
+  c(A=.33, C=.33, D=0.00, E=.34),
+  # 3
+  c(A=.33, C=0.00, D=.33, E=.34),
+  # 4
+  c(A=.50, C=0.00, D=0.00, E=.50),
+  # 5
+  c(A=.80, C=.10, D=0.00, E=.10),
+  # 6
+  c(A=.80, C=0.00, D=.10, E=.10),
+  # 7
+  c(A=.90, C=0.00, D=0.00, E=.10)
+)
 
-  list(mz = mzData, dz = dzData, mzCov = mzMat, dzCov = dzMat)
+# ---- helpers -----------------------------------------------------------------
+
+ensure_dir <- function(path) { if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE) }
+
+# Convert a univariate ACDE list (with mz, dz matrices having cols t1,t2) to dataTwo schema
+to_dataTwo <- function(dat_list) {
+  # dat_list$mz and dat_list$dz should be matrices or data.frames with columns named t1, t2
+  mz <- as.data.frame(dat_list$mz)
+  dz <- as.data.frame(dat_list$dz)
+
+  # Defensive colnames
+  colnames(mz) <- c("t1", "t2")
+  colnames(dz) <- c("t1", "t2")
+
+  # Build rows
+  mz_df <- data.frame(
+    zyg  = 1L, zyg2 = 1L,
+    sex1 = 2L, sex2 = 2L,            # no sex differences programmed; keep fixed
+    p1_t1 = mz$t1, p1_t2 = mz$t2,
+    p2_t1 = NA_real_,                # univariate: second trait columns are NA
+    p2_t2 = NA_real_
+  )
+
+  dz_df <- data.frame(
+    zyg  = 2L, zyg2 = 2L,
+    sex1 = 2L, sex2 = 2L,
+    p1_t1 = dz$t1, p1_t2 = dz$t2,
+    p2_t1 = NA_real_,
+    p2_t2 = NA_real_
+  )
+
+  rbind(mz_df, dz_df)
 }
 
-# ==============================================================================
-# 2) Build a direct-variance ACDE model and run it (OpenMx)
-# ==============================================================================
+# Single dataset generate-and-save
+save_one_dataset <- function(k, i, A, C, D, E, Nmz, Ndz, out_dir, seed0) {
+  # Unique seed per variation/dataset
+  set.seed(seed0 + k*1e6 + i)
 
-fitACDE_var <- function(dat, start = c(A=.3, C=.1, D=.05, E=.55), lb = c(A=0, C=0, D=0, E=1e-6)) {
-  selVars <- c("t1","t2")
-  MZdata <- mxData(dat$mz, type="raw")
-  DZdata <- mxData(dat$dz, type="raw")
+  # Call acdeSim (must return a list with mz, dz, mzCov, dzCov; mz/dz have cols t1, t2)
+  dat <- acdeSim(A=A, C=C, D=D, E=E, Nmz=Nmz, Ndz=Ndz)
 
-  A <- mxMatrix("Symm",1,1,free=TRUE, values=start["A"], lbound=lb["A"], labels="A11", name="A")
-  C <- mxMatrix("Symm",1,1,free=TRUE, values=start["C"], lbound=lb["C"], labels="C11", name="C")
-  D <- mxMatrix("Symm",1,1,free=TRUE, values=start["D"], lbound=lb["D"], labels="D11", name="D")
-  E <- mxMatrix("Symm",1,1,free=TRUE, values=start["E"], lbound=lb["E"], labels="E11", name="E")
+  # Convert to dataTwo format for CSV
+  dataTwo <- to_dataTwo(dat)
 
-  Mean <- mxMatrix("Full",1,1,free=TRUE, values=0, labels="mu", name="Mean")
-  expMean <- mxAlgebra(cbind(Mean,Mean), name="expMean")
+  # Paths
+  csv_path <- file.path(out_dir, sprintf("sim%d.csv", i))
+  rds_path <- file.path(out_dir, sprintf("sim%d_dat.rds", i))
 
-  expMZ <- mxAlgebra(rbind(cbind(A+C+D+E, A+C+D), cbind(A+C+D, A+C+D+E)), name="expCovMZ")
-  expDZ <- mxAlgebra(rbind(cbind(A+C+D+E, 0.5%x%A + C + 0.25%x%D), cbind(0.5%x%A + C + 0.25%x%D, A+C+D+E)), name="expCovDZ")
+  # Write
+  utils::write.csv(dataTwo, csv_path, row.names = FALSE)
+  saveRDS(dat, rds_path)
 
-  mxMZ <- mxModel("MZ", A,C,D,E, Mean, expMean, expMZ, MZdata,
-                  mxExpectationNormal(covariance="expCovMZ", means="expMean", dimnames=selVars),
-                  mxFitFunctionML())
-
-  mxDZ <- mxModel("DZ", A,C,D,E, Mean, expMean, expDZ, DZdata,
-                  mxExpectationNormal(covariance="expCovDZ", means="expMean", dimnames=selVars),
-                  mxFitFunctionML())
-
-  top <- mxModel("ACDE_var", mxMZ, mxDZ, mxFitFunctionMultigroup(c("MZ","DZ")))
-
-  suppressWarnings(mxRun(top, silent=TRUE))
+  invisible(list(csv=csv_path, rds=rds_path))
 }
 
-# ==============================================================================
-# 3) Convenience: fit ACE_var and ADE_var (also direct-variance)
-# ==============================================================================
+# ---- main loop ----------------------------------------------------------------
 
-fitACE_var <- function(dat, start = c(A=.3, C=.2, E=.5)) {
-  selVars <- c("t1","t2")
-  MZdata <- mxData(dat$mz, type="raw")
-  DZdata <- mxData(dat$dz, type="raw")
+ensure_dir(out_root)
 
-  A <- mxMatrix("Symm",1,1,free=TRUE, values=start["A"], lbound=0, labels="A11", name="A")
-  C <- mxMatrix("Symm",1,1,free=TRUE, values=start["C"], lbound=0, labels="C11", name="C")
-  E <- mxMatrix("Symm",1,1,free=TRUE, values=start["E"], lbound=1e-6, labels="E11", name="E")
+manifest_all <- list()
 
-  Mean <- mxMatrix("Full",1,1,free=TRUE, values=0, labels="mu", name="Mean")
-  expMean <- mxAlgebra(cbind(Mean,Mean), name="expMean")
+for (k in seq_along(targets)) {
+  tgt <- targets[[k]]
+  stopifnot(abs(sum(tgt) - 1) < 1e-8)
 
-  expMZ <- mxAlgebra(rbind(cbind(A+C+E, A+C), cbind(A+C, A+C+E)), name="expCovMZ")
-  expDZ <- mxAlgebra(rbind(cbind(A+C+E, 0.5%x%A + C), cbind(0.5%x%A + C, A+C+E)), name="expCovDZ")
+  variation_dir <- file.path(out_root, sprintf("variation_%d", k))
+  ensure_dir(variation_dir)
 
-  mxMZ <- mxModel("MZ", A,C,E, Mean, expMean, expMZ, MZdata,
-                  mxExpectationNormal(covariance="expCovMZ", means="expMean", dimnames=selVars),
-                  mxFitFunctionML())
+  message(sprintf("[variation_%d] Target: A=%.2f C=%.2f D=%.2f E=%.2f  -> %s",
+                  k, tgt["A"], tgt["C"], tgt["D"], tgt["E"], variation_dir))
 
-  mxDZ <- mxModel("DZ", A,C,E, Mean, expMean, expDZ, DZdata,
-                  mxExpectationNormal(covariance="expCovDZ", means="expMean", dimnames=selVars),
-                  mxFitFunctionML())
+  # Manifest entries
+  items <- vector("list", n_per)
 
-  top <- mxModel("ACE_var", mxMZ, mxDZ, mxFitFunctionMultigroup(c("MZ","DZ")))
+  for (i in seq_len(n_per)) {
+    out <- save_one_dataset(
+      k=k, i=i,
+      A=tgt["A"], C=tgt["C"], D=tgt["D"], E=tgt["E"],
+      Nmz=Nmz, Ndz=Ndz,
+      out_dir=variation_dir, seed0=seed0
+    )
+    items[[i]] <- c(sim=i, csv=out$csv, rds=out$rds)
+    if (i %% 50 == 0) message(sprintf("  ... %d / %d saved", i, n_per))
+  }
 
-  suppressWarnings(mxRun(top, silent=TRUE))
+  manifest <- list(
+    target = unclass(tgt),
+    Nmz = Nmz, Ndz = Ndz,
+    n_datasets = n_per,
+    files = items
+  )
+
+  # Save a JSON and CSV manifest for convenience
+  jsonlite::write_json(manifest, file.path(variation_dir, "manifest.json"), auto_unbox = TRUE, pretty = TRUE)
+
+  # Also a compact CSV index
+  idx <- data.frame(
+    sim = seq_len(n_per),
+    csv = vapply(items, function(x) x["csv"], character(1)),
+    rds = vapply(items, function(x) x["rds"], character(1)),
+    stringsAsFactors = FALSE
+  )
+  utils::write.csv(idx, file.path(variation_dir, "manifest.csv"), row.names = FALSE)
+
+  manifest_all[[paste0("variation_", k)]] <- manifest
 }
 
-fitADE_var <- function(dat, start = c(A=.3, D=.2, E=.5)) {
-  selVars <- c("t1","t2")
-  MZdata <- mxData(dat$mz, type="raw")
-  DZdata <- mxData(dat$dz, type="raw")
+# Top-level manifest
+jsonlite::write_json(manifest_all, file.path(out_root, "manifest_all.json"), auto_unbox = TRUE, pretty = TRUE)
 
-  A <- mxMatrix("Symm",1,1,free=TRUE, values=start["A"], lbound=0, labels="A11", name="A")
-  D <- mxMatrix("Symm",1,1,free=TRUE, values=start["D"], lbound=0, labels="D11", name="D")
-  E <- mxMatrix("Symm",1,1,free=TRUE, values=start["E"], lbound=1e-6, labels="E11", name="E")
-
-  Mean <- mxMatrix("Full",1,1,free=TRUE, values=0, labels="mu", name="Mean")
-  expMean <- mxAlgebra(cbind(Mean,Mean), name="expMean")
-
-  expMZ <- mxAlgebra(rbind(cbind(A+D+E, A+D), cbind(A+D, A+D+E)), name="expCovMZ")
-  expDZ <- mxAlgebra(rbind(cbind(A+D+E, 0.5%x%A + 0.25%x%D), cbind(0.5%x%A + 0.25%x%D, A+D+E)), name="expCovDZ")
-
-  mxMZ <- mxModel("MZ", A,D,E, Mean, expMean, expMZ, MZdata,
-                  mxExpectationNormal(covariance="expCovMZ", means="expMean", dimnames=selVars),
-                  mxFitFunctionML())
-
-  mxDZ <- mxModel("DZ", A,D,E, Mean, expMean, expDZ, DZdata,
-                  mxExpectationNormal(covariance="expCovDZ", means="expMean", dimnames=selVars),
-                  mxFitFunctionML())
-
-  top <- mxModel("ADE_var", mxMZ, mxDZ, mxFitFunctionMultigroup(c("MZ","DZ")))
-
-  suppressWarnings(mxRun(top, silent=TRUE))
-}
-
-# ==============================================================================
-# Example usage
-# ==============================================================================
-#
-# # Simulate standardized ACDE = (.25,.25,.25,.25) with 500/750 pairs
-# dat <- acdeSim(A=.25, C=.25, D=.25, E=.25, Nmz=500, Ndz=750)
-#
-# # Fit models
-# fit_acde <- fitACDE_var(dat)
-# fit_ace <- fitACE_var(dat)
-# fit_ade <- fitADE_var(dat)
-#
-# # View results
-# summary(fit_acde)
-# summary(fit_ace)
-# summary(fit_ade)
+message("\n✅ Done. Datasets are in 'datasets/variation_1' ... 'variation_7'.")
+message("   Each folder contains sim1.csv ... sim1000.csv and sim*_dat.rds plus a manifest.")
