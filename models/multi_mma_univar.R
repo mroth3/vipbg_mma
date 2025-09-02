@@ -34,6 +34,6 @@ for (d in subdirs) {
     dataset_name <- basename(f)
     out_file     <- file.path(out_dir, dataset_name)
 
-    write.csv(mma$"Model-Average Estimates", out_file, row.names = FALSE)
+    write.csv(combined_results, out_file, row.names = FALSE)
   }
 }
