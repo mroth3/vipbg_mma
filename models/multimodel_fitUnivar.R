@@ -45,9 +45,9 @@ if(length(missing_cols) > 0) {
 
 # Select trait-specific columns
 if(target_trait == 1L) {
-  selVars <- c("p1_t1", "p2_t1")
+  selVars <- c("p1_t1", "p1_t2")
 } else if(target_trait == 2L) {
-  selVars <- c("p1_t2", "p2_t2")
+  selVars <- c("p2_t1", "p2_t2")
 } else {
   stop("target_trait must be 1 or 2")
 }
