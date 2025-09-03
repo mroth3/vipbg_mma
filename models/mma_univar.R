@@ -86,7 +86,7 @@ quiet_run <- function(file_path, log_file = "error_log.txt") {
 # UNIVARIATE ACDE MULTIMODEL FITTING - OpenMx Implementation (MZ/DZ Only)
 # ==============================================================================
 # Fits univariate twin models under ACDE framework with mxModelAverage
-# Compatible with bivariate simulator output: p1_t1,p2_t1,p1_t2,p2_t2
+# Compatible with bivariate simulator output: p1_t1,p1_t2,p2_t1,p2_t2
 
 library(OpenMx)
 
@@ -94,7 +94,7 @@ library(OpenMx)
 # USER-TUNABLE CONTROLS
 # ==============================================================================
 
-target_trait <- 1L        # 1 or 2; which trait to analyze (p1_t1/p2_t1 or p1_t2/p2_t2)
+target_trait <- 1L        # 1 or 2; which trait to analyze (p1_t1/p1_t2 or p2_t1/p2_t2)
 useTryHard   <- TRUE      # Use mxTryHard instead of mxRun for robustness
 optimizer    <- "NPSOL"   # Optimizer: "NPSOL", "SLSQP", or "CSOLNP"
 startVals    <- c(A = 0.3, C = 0.3, D = 0.3, E = 0.3)  # Starting values for variance components
@@ -121,7 +121,7 @@ cat("Include OSDZ:", includeOSDZ, "\n")
 # ==============================================================================
 data <- dataTwo
 # Check for required columns
-required_cols <- c("p1_t1", "p2_t1", "p1_t2", "p2_t2", "zyg")
+required_cols <- c("p1_t1", "p1_t2", "p2_t1", "p2_t2", "zyg")
 missing_cols <- setdiff(required_cols, names(data))
 if(length(missing_cols) > 0) {
   stop("Missing required columns: ", paste(missing_cols, collapse = ", "))
