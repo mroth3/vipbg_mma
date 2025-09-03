@@ -1290,10 +1290,6 @@ combined_results$Best_Var_ByAIC   <- if (!is.null(best_var_model))  best_var_mod
 combined_results$MZ_cor <- as.numeric(rMZ)
 combined_results$DZ_cor <- as.numeric(rDZ)
 
-# Save combined results
-combined_results_file <- paste0("estimates/combined_twin_results_", timestamp, ".csv")
-write.csv(combined_results, combined_results_file, row.names = FALSE)
-cat("\nCombined results saved to:", combined_results_file, "\n")
 
 # Store results for potential use by wrapper scripts
 mma <- list()
