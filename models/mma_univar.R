@@ -5,7 +5,7 @@
 # Load Libraries & Options
 require(OpenMx)
 require(psych)
-source("models_v2/miFunctions.R")
+source("models/miFunctions.R")
 options(width=245)
 
 # ---------------------------------------------------------------------------------------------------------------------|
