@@ -11,8 +11,8 @@ suppressPackageStartupMessages({
 # ----------------------------
 # 1) Paths & IO setup
 # ----------------------------
-base_dir <- "datasets/N_500"
-out_dir  <- "estimates/N_500"
+base_dir <- "datasets/N_2000"
+out_dir  <- "estimates/N_2000"
 plot_dir <- file.path(out_dir, "plots")
 
 dir.create(out_dir,  recursive = TRUE, showWarnings = FALSE)
