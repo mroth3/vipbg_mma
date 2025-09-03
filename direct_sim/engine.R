@@ -1,13 +1,31 @@
 # batch_acdeSim.R
 # Generate 1,000 datasets for each of 7 ACDE targets and save to datasets/variation_k
 
-# ---- user knobs --------------------------------------------------------------
-Nmz      <- 500       # MZ pairs per dataset
-Ndz      <- 750       # DZ pairs per dataset
-n_per    <- 1000      # datasets per variation
-out_root <- "datasets"
-seed0    <- 20250902  # base seed; ensures reproducibility but uniqueness across runs
+# ---- user knobs with defaults ------------------------------------------------
+# Default values
+n_per <- 10   # datasets per variation
+Nmz   <- 100    # MZ pairs per dataset
+Ndz   <- 200    # DZ pairs per dataset
 
+# Parse command-line arguments
+args <- commandArgs(trailingOnly = TRUE)
+for (a in args) {
+  if (grepl("--n_per=", a)) {
+    n_per <- as.numeric(sub("--n_per=", "", a))
+  }
+  if (grepl("--Nmz=", a)) {
+    Nmz <- as.numeric(sub("--Nmz=", "", a))
+  }
+  if (grepl("--Ndz=", a)) {
+    Ndz <- as.numeric(sub("--Ndz=", "", a))
+  }
+}
+
+cat("⚙️ Simulation settings:\n")
+cat("   n_per =", n_per, "\n")
+cat("   Nmz   =", Nmz, "\n")
+cat("   Ndz   =", Ndz, "\n")
+seed0    <- 20250902  # base seed; ensures reproducibility but uniqueness across runs
 source('direct_acde/acde_direct.R')
 
 
@@ -86,7 +104,19 @@ save_one_dataset <- function(k, i, A, C, D, E, Nmz, Ndz, out_dir, seed0) {
 }
 
 # ---- main loop ----------------------------------------------------------------
+# Base directory
+out_dir  <- "datasets"
+N <- Nmz+Ndz
+# Construct subdirectory name: e.g. "datasets/10002500variation_1"
+out_root <- file.path(out_dir, paste0("N","_",N))
 
+# Create directory if it does not exist
+if (!dir.exists(out_root)) {
+  dir.create(out_root, recursive = TRUE)
+  cat("Created output directory:", out_root, "\n")
+} else {
+  cat("Using existing output directory:", out_root, "\n")
+}
 ensure_dir(out_root)
 
 manifest_all <- list()
