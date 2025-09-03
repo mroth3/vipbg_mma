@@ -26,7 +26,7 @@ cat("   n_per =", n_per, "\n")
 cat("   Nmz   =", Nmz, "\n")
 cat("   Ndz   =", Ndz, "\n")
 seed0    <- 20250902  # base seed; ensures reproducibility but uniqueness across runs
-source('direct_acde/acde_direct.R')
+source('direct_sim/acde_direct.R')
 
 
 # ---- targets (must sum to 1.00) ---------------------------------------------
