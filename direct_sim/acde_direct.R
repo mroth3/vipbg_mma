@@ -29,6 +29,7 @@ acdeSim <- function(A, C, D, E, Nmz, Ndz, mean=0) {
   list(mz = mzData, dz = dzData, mzCov = mzMat, dzCov = dzMat)
 }
 
+
 # ==============================================================================
 # 2) Build a direct-variance ACDE model and run it (OpenMx)
 # ==============================================================================
